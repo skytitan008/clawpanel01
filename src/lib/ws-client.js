@@ -135,6 +135,13 @@ export class WsClient {
         this._flushPending()
         return
       }
+      if (e.code === 1008 && !this._intentionalClose) {
+        // origin not allowed — 自动写入 allowedOrigins 后再重连
+        console.log('[ws] origin not allowed (1008)，尝试自动修复...')
+        this._setConnected(false, 'reconnecting', 'origin not allowed，修复中...')
+        this._autoPairAndReconnect()
+        return
+      }
       this._setConnected(false)
       this._gatewayReady = false
       this._handshaking = false

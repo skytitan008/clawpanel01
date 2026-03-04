@@ -238,7 +238,7 @@ function renderDebugInfo(el, info) {
     html += `<li style="color:var(--error);margin-bottom:6px">❌ 设备密钥生成失败，请检查 Rust 后端日志</li>`
   }
   if (!info.wsClient.connected && info.services?.length > 0 && info.services[0]?.running) {
-    html += `<li style="color:var(--warning);margin-bottom:6px">⚠️ Gateway 已启动但 WebSocket 未连接，请检查端口 ${info.config?.gateway?.port || 18789} 是否被占用</li>`
+    html += `<li style="color:var(--warning);margin-bottom:6px">⚠️ Gateway 运行中但 WebSocket 未连接，常见原因：<strong>origin not allowed</strong>（Tauri origin 未在白名单）或端口 ${info.config?.gateway?.port || 18789} 被占用。点击“一键修复配对”可自动修复 origin 问题</li>`
   }
   if (info.wsClient.connected && !info.wsClient.gatewayReady) {
     html += `<li style="color:var(--warning);margin-bottom:6px">⚠️ WebSocket 已连接但握手未完成，请检查 token 是否正确</li>`
@@ -351,7 +351,10 @@ function testWebSocket(page) {
 
       testWs.onclose = (e) => {
         addLog(`🔌 连接关闭 - Code: ${e.code}, Reason: ${e.reason || '(空)'}`)
-        if (e.code === 4001) {
+        if (e.code === 1008) {
+          addLog(`❌ origin not allowed (1008) - Gateway 拒绝了当前应用的 origin`)
+          addLog(`💡 解决方法：点击“一键修复配对”，将自动将 tauri://localhost 加入白名单并重启 Gateway`)
+        } else if (e.code === 4001) {
           addLog(`❌ 认证失败 (4001) - Token 可能不正确`)
         } else if (e.code === 1006) {
           addLog(`⚠️ 异常关闭 (1006) - 可能是网络问题或 Gateway 主动断开`)
@@ -475,10 +478,11 @@ async function fixPairing(page) {
   try {
     addLog('🔧 开始修复配对问题...')
 
-    // 1. 修改配置禁用配对
-    addLog('📝 修改配置文件，禁用配对要求...')
+    // 1. 写入 paired.json + controlUi.allowedOrigins
+    addLog('📝 正在写入设备配对信息 + Gateway origin 白名单...')
     const result = await api.autoPairDevice()
     addLog(`✅ ${result}`)
+    addLog('✅ 已将 tauri://localhost 加入 gateway.controlUi.allowedOrigins')
 
     // 2. 重启 Gateway
     addLog('🔄 重启 Gateway 服务...')
@@ -529,11 +533,19 @@ async function fixPairing(page) {
         if (msg.type === 'res' && msg.id?.startsWith('connect-')) {
           if (msg.ok) {
             addLog('🎉 握手成功！配对问题已修复！')
-            addLog('💡 提示：现在可以正常使用 WebSocket 功能了')
-            ws.close()
+            addLog('💡 正在重新建立主应用 WebSocket 连接...')
+            ws.close(1000)
+            // 触发主应用的 wsClient 重连，让主界面正常工作
+            wsClient.reconnect()
+            setTimeout(() => loadDebugInfo(page), 2000)
           } else {
-            addLog(`❌ 握手失败: ${msg.error?.message || '未知错误'}`)
-            addLog('💡 建议：请手动重启 Gateway 或联系技术支持')
+            const errMsg = msg.error?.message || msg.error?.code || '未知错误'
+            addLog(`❌ 握手失败: ${errMsg}`)
+            if (errMsg.includes('origin not allowed')) {
+              addLog('💡 原因：Gateway 拒绝了当前应用的 origin，需要重启 Gateway 再试')
+            } else {
+              addLog('💡 建议：请手动前往“服务管理”页面重启 Gateway')
+            }
           }
         }
       } catch (e) {
@@ -542,11 +554,14 @@ async function fixPairing(page) {
     }
 
     ws.onerror = () => {
-      addLog('❌ WebSocket 连接失败')
+      addLog('❌ WebSocket 连接失败，请确认 Gateway 已在运行')
     }
 
     ws.onclose = (e) => {
-      if (e.code !== 1000) {
+      if (e.code === 1008) {
+        addLog(`⚠️ 连接被拒绝 (1008) - Gateway 拒绝了当前 origin`)
+        addLog('💡 该问题应已被本次修复流程处理，请再次点击“一键修复配对”')
+      } else if (e.code !== 1000) {
         addLog(`⚠️ 连接关闭 - Code: ${e.code}`)
       }
     }

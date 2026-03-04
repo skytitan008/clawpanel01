@@ -88,7 +88,46 @@ pub fn auto_pair_device() -> Result<String, String> {
 
     std::fs::write(&paired_path, new_content).map_err(|e| format!("写入 paired.json 失败: {e}"))?;
 
+    // 同步写入 controlUi.allowedOrigins，允许 Tauri 的 origin 连接 Gateway
+    patch_gateway_origins();
+
     Ok("设备配对成功".into())
+}
+
+/// 将 Tauri 应用的 origin 写入 gateway.controlUi.allowedOrigins
+/// 避免 Gateway 因 origin not allowed 拒绝 WebSocket 握手
+fn patch_gateway_origins() {
+    let config_path = crate::commands::openclaw_dir().join("openclaw.json");
+    if !config_path.exists() {
+        return;
+    }
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return;
+    };
+    let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return;
+    };
+
+    // Tauri v2: macOS/Linux 用 tauri://localhost，Windows 用 https://tauri.localhost
+    let origins = serde_json::json!(["tauri://localhost", "https://tauri.localhost", "http://localhost"]);
+
+    if let Some(obj) = config.as_object_mut() {
+        let gateway = obj
+            .entry("gateway")
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(gw) = gateway.as_object_mut() {
+            let control_ui = gw
+                .entry("controlUi")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(cui) = control_ui.as_object_mut() {
+                cui.insert("allowedOrigins".to_string(), origins);
+            }
+        }
+    }
+
+    if let Ok(new_json) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(&config_path, new_json);
+    }
 }
 
 #[tauri::command]
