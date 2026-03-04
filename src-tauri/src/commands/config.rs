@@ -891,10 +891,7 @@ pub fn patch_model_vision() -> Result<bool, String> {
                                     for model in arr.iter_mut() {
                                         if let Some(mobj) = model.as_object_mut() {
                                             if !mobj.contains_key("input") {
-                                                mobj.insert(
-                                                    "input".into(),
-                                                    vision_input.clone(),
-                                                );
+                                                mobj.insert("input".into(), vision_input.clone());
                                                 changed = true;
                                             }
                                         }
@@ -911,8 +908,7 @@ pub fn patch_model_vision() -> Result<bool, String> {
     if changed {
         let bak = super::openclaw_dir().join("openclaw.json.bak");
         let _ = fs::copy(&path, &bak);
-        let json =
-            serde_json::to_string_pretty(&config).map_err(|e| format!("序列化失败: {e}"))?;
+        let json = serde_json::to_string_pretty(&config).map_err(|e| format!("序列化失败: {e}"))?;
         fs::write(&path, json).map_err(|e| format!("写入失败: {e}"))?;
     }
 
@@ -955,11 +951,9 @@ pub async fn check_panel_update() -> Result<Value, String> {
     result.insert("latest".into(), Value::String(tag));
     result.insert(
         "url".into(),
-        json.get("html_url")
-            .cloned()
-            .unwrap_or(Value::String(
-                "https://github.com/qingchencloud/clawpanel/releases".into(),
-            )),
+        json.get("html_url").cloned().unwrap_or(Value::String(
+            "https://github.com/qingchencloud/clawpanel/releases".into(),
+        )),
     );
     Ok(Value::Object(result))
 }
